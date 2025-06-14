@@ -275,7 +275,7 @@ const App: React.FC = () => {
           >
             Submit Completion
           </button>
-        </div>
+        </div>   
       ))}
 
       <h2 className="text-xl font-bold mb-2">Shop</h2>
