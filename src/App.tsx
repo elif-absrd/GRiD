@@ -28,9 +28,18 @@ interface Task {
   points: number;
 }
 
-interface Submission {
+interface PendingSubmission {
   _id: string;
-  taskId: string;
+  taskId: string | { _id: string; title: string };
+  userId: { _id: string; name: string };
+  status: string;
+}
+
+// Interface for approved submissions (user view)
+interface ApprovedSubmission {
+  _id: string;
+  taskId: string | { _id: string; title: string; description: string; points: number };
+  userId: string;
   status: string;
 }
 
@@ -50,9 +59,11 @@ interface UserData {
 const App: React.FC = () => {
   const [user, setUser] = useState<CustomUser | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [submissions, setSubmissions] = useState<PendingSubmission[]>([]);
+  const [approvedSubmissions, setApprovedSubmissions] = useState<ApprovedSubmission[]>([]);
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
   const [leaderboard, setLeaderboard] = useState<UserData[]>([]);
+  const [currentUserData, setCurrentUserData] = useState<UserData | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false); // Toggle between login and sign-up forms
@@ -63,21 +74,39 @@ const App: React.FC = () => {
     const auth = getAuth();
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
-        const idTokenResult = await firebaseUser.getIdTokenResult();
-        const customUser = {
-          ...firebaseUser,
-          admin: idTokenResult.claims.admin === true,
-        };
-        setUser(customUser);
-        fetchTasks();
-        if (customUser.admin) fetchPendingSubmissions();
-        fetchShopItems();
-        fetchLeaderboard();
+        try {
+          const idTokenResult = await firebaseUser.getIdTokenResult(true);
+          const customUser = {
+            ...firebaseUser,
+            admin: idTokenResult.claims.admin === true,
+          };
+          setUser(customUser);
+
+          const token = await firebaseUser.getIdToken();
+          if (!token) {
+            console.error('No ID token available');
+            return;
+          }
+
+          fetchTasks();
+          if (customUser.admin) {
+            fetchPendingSubmissions();
+          } else {
+            fetchApprovedSubmissions(); // Fetch approved submissions for non-admins
+          }
+          fetchShopItems();
+          fetchLeaderboard();
+        } catch (error) {
+          console.error('Error in onAuthStateChanged:', error);
+          setUser(null);
+          setCurrentUserData(null);
+        }
       } else {
         setUser(null);
+        setCurrentUserData(null);
+        setApprovedSubmissions([]); // Clear approved submissions on logout
       }
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -93,6 +122,13 @@ const App: React.FC = () => {
       headers: { Authorization: `Bearer ${await getAuth().currentUser?.getIdToken()}` },
     });
     setSubmissions(await res.json());
+  };
+
+  const fetchApprovedSubmissions = async () => {
+    const res = await fetch('http://localhost:3000/api/tasks/submissions/approved', {
+      headers: { Authorization: `Bearer ${await getAuth().currentUser?.getIdToken()}` },
+    });
+      setApprovedSubmissions(await res.json());
   };
 
   const fetchShopItems = async () => {
@@ -155,11 +191,11 @@ const App: React.FC = () => {
   };
 
   const handleSubmitTask = async (taskId: string) => {
-    await fetch(`http://localhost:3000/api/tasks/${taskId}/submit`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${await getAuth().currentUser?.getIdToken()}` },
-    });
-    fetchTasks();
+      await fetch(`http://localhost:3000/api/tasks/${taskId}/submit`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await getAuth().currentUser?.getIdToken()}` },
+      });
+      fetchTasks(); // Refresh the task list (submitted task will be removed)
   };
 
   const handleApproveSubmission = async (submissionId: string) => {
@@ -232,9 +268,13 @@ const App: React.FC = () => {
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Task Completion App</h1>
+      <div className="mb-4">
+        <p className="text-lg">
+          Welcome, {currentUserData?.uid || user.email}!
+        </p>
       <button onClick={handleLogout} className="bg-red-500 text-white p-2 rounded mb-4">
         Logout
-      </button>
+      </button></div>
 
       {user.admin && (
         <div className="mb-8">
@@ -251,7 +291,10 @@ const App: React.FC = () => {
           <h2 className="text-xl font-bold mb-2">Pending Submissions</h2>
           {submissions.map((submission) => (
             <div key={submission._id} className="border p-2 mb-2">
-              <p>Task ID: {submission.taskId}</p>
+              <p>Task:{' '}
+              {typeof submission.taskId === 'string'
+                ? `Task ID: ${submission.taskId}`
+                : submission.taskId.title}</p>
               <button
                 onClick={() => handleApproveSubmission(submission._id)}
                 className="bg-blue-500 text-white p-2 rounded"
@@ -269,14 +312,39 @@ const App: React.FC = () => {
           <h3 className="font-bold">{task.title}</h3>
           <p>{task.description}</p>
           <p>Points: {task.points}</p>
-          <button
-            onClick={() => handleSubmitTask(task._id)}
-            className="bg-blue-500 text-white p-2 rounded"
-          >
-            Submit Completion
-          </button>
+          {!user.admin && (
+              <button
+                onClick={() => handleSubmitTask(task._id)}
+                className="bg-blue-500 text-white p-2 rounded"
+              >
+                Submit Completion
+              </button>
+            )}
         </div>
       ))}
+
+      {!user.admin && (
+        <div className="mt-8">
+          <h2 className="text-xl font-bold mb-2">Previous Submissions</h2>
+          {approvedSubmissions.length === 0 ? (
+            <p>No approved submissions yet.</p>
+          ) : (
+            approvedSubmissions.map((submission) => (
+              <div key={submission._id} className="border p-2 mb-2">
+                {typeof submission.taskId === 'string' ? (
+            <p>Task data unavailable (ID: {submission.taskId})</p>
+          ) : (
+            <>
+                <h3 className="font-bold">{submission.taskId.title}</h3>
+                <p>{submission.taskId.description}</p>
+                <p>Points Earned: {submission.taskId.points}</p>
+            </>
+          )}
+            </div>
+            ))
+          )}
+        </div>
+      )}
 
       <h2 className="text-xl font-bold mb-2">Shop</h2>
       {shopItems.map((item) => (
