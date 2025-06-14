@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "ts-node-dev --respawn --transpile-only src/index.ts"
+    "start": "ts-node src/index.ts",
+    "set-admin": "ts-node src/setAdmin.ts",
+    "seed-shop": "ts-node src/seedShop.ts"
   },
   "keywords": [],
   "author": "",

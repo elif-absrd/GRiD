@@ -2,8 +2,8 @@ import express, { Request, Response } from 'express';
 import Task from '../models/Task';
 import Submission from '../models/Submission';
 import User from '../models/User';
+import { Types } from 'mongoose';
 
-// Extend the Request type to include the user property (added by your middleware)
 interface AuthenticatedRequest extends Request {
   user?: {
     uid: string;
@@ -13,7 +13,26 @@ interface AuthenticatedRequest extends Request {
 
 const router = express.Router();
 
-// Create task (Admin only)
+router.get('/', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    if (req.user?.admin) {
+      const tasks = await Task.find().sort({ createdAt: -1 });
+      res.json(tasks);
+      return;
+    }
+
+    const userId = req.user?.uid;
+    const submissions = await Submission.find({ userId }).select('taskId');
+    const submittedTaskIds = submissions.map((submission) => submission.taskId.toString());
+    const tasks = await Task.find({ _id: { $nin: submittedTaskIds } }).sort({ createdAt: -1 });
+    console.log(`User ${userId} fetched tasks:`, tasks);
+    res.json(tasks);
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
 router.post('/', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   if (!req.user?.admin) {
     res.status(403).json({ error: 'Admin only' });
@@ -28,70 +47,172 @@ router.post('/', async (req: AuthenticatedRequest, res: Response): Promise<void>
   });
 
   await task.save();
+  console.log('Task created:', task);
   res.json(task);
 });
 
-// Get all tasks
-router.get('/', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  const tasks = await Task.find();
-  res.json(tasks);
+router.delete('/all', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (!req.user?.admin) {
+    res.status(403).json({ error: 'Admin only' });
+    return;
+  }
+
+  try {
+    // Delete all tasks
+    const deleteResult = await Task.deleteMany({});
+    console.log(`Deleted ${deleteResult.deletedCount} tasks`);
+
+    // Delete all submissions related to tasks
+    const submissionsDeleteResult = await Submission.deleteMany({});
+    console.log(`Deleted ${submissionsDeleteResult.deletedCount} submissions`);
+
+    // Reset all users' points and tokens to 0
+    const userUpdateResult = await User.updateMany({}, { $set: { points: 0, tokens: 0 } });
+    console.log(`Reset points and tokens for ${userUpdateResult.modifiedCount} users`);
+
+    res.json({ message: `Successfully deleted ${deleteResult.deletedCount} tasks and reset user points` });
+  } catch (error) {
+    console.error('Error deleting tasks:', error);
+    res.status(500).json({ error: 'Failed to delete tasks' });
+  }
 });
 
-// Submit task completion
 router.post('/:id/submit', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  const submission = new Submission({
-    taskId: req.params.id,
-    userId: req.user?.uid,
-  });
+  if (req.user?.admin) {
+    res.status(403).json({ error: 'Admins cannot submit tasks' });
+    return;
+  }
 
-  await submission.save();
-  res.json(submission);
+  const task = await Task.findById(req.params.id);
+  if (!task) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+
+  try {
+    const submission = new Submission({
+      taskId: new Types.ObjectId(req.params.id), // Convert taskId to ObjectId
+      userId: req.user?.uid,
+      status: 'pending',
+    });
+
+    await submission.save();
+    console.log(`User ${req.user?.uid} submitted task ${req.params.id}:`, submission);
+    res.json(submission);
+  } catch (error: any) {
+    if (error.code === 11000) {
+      res.status(400).json({ error: 'You have already submitted this task.' });
+      return;
+    }
+    console.error('Error submitting task:', error);
+    res.status(500).json({ error: 'Failed to submit task' });
+  }
 });
 
-// Approve submission (Admin only)
+router.get('/submissions/pending', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (!req.user?.admin) {
+    res.status(403).json({ error: 'Admin only' });
+    return;
+  }
+
+  const submissions = await Submission.find({ status: 'pending' })
+    .sort({ createdAt: -1 })
+    .populate('taskId', 'title')
+    .populate('userId', 'name email uid');
+  res.json(submissions);
+});
+
+router.get('/submissions/approved', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (req.user?.admin) {
+    res.status(403).json({ error: 'Admins do not have submissions' });
+    return;
+  }
+
+  try {
+    const submissions = await Submission.find({
+      userId: req.user?.uid,
+      status: 'approved',
+    })
+      .sort({ createdAt: -1 })
+      .populate('taskId', 'title description points');
+    console.log(`Approved submissions for user ${req.user?.uid}:`, submissions);
+    res.json(submissions);
+  } catch (error) {
+    console.error('Error fetching approved submissions:', error);
+    res.status(500).json({ error: 'Failed to fetch approved submissions' });
+  }
+});
+
 router.post('/:id/approve', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   if (!req.user?.admin) {
     res.status(403).json({ error: 'Admin only' });
     return;
   }
 
-  const submission = await Submission.findById(req.params.id);
-  if (!submission) {
-    res.status(404).json({ error: 'Submission not found' });
-    return;
+  try {
+    const submission = await Submission.findById(req.params.id);
+    if (!submission) {
+      console.error(`Submission ${req.params.id} not found`);
+      res.status(404).json({ error: 'Submission not found' });
+      return;
+    }
+    console.log('Submission to approve:', submission);
+
+    if (submission.status === 'approved') {
+      console.log(`Submission ${req.params.id} is already approved`);
+      res.status(400).json({ error: 'Submission already approved' });
+      return;
+    }
+
+    submission.status = 'approved';
+    await submission.save();
+    console.log('Submission approved:', submission);
+
+    const task = await Task.findById(submission.taskId);
+    if (!task) {
+      console.error(`Task ${submission.taskId} not found`);
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+    console.log('Task for submission:', task);
+
+    const userId = submission.userId;
+    console.log(`User ID to update: ${userId}`);
+
+    const userBeforeUpdate = await User.findOne({ uid: userId });
+    console.log('User before update:', userBeforeUpdate);
+
+    if (!userBeforeUpdate) {
+      console.error(`User with uid ${userId} not found`);
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const updateResult = await User.updateOne(
+      { uid: userId },
+      { $inc: { points: task.points, tokens: task.points } }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      console.error(`User with uid ${userId} not found during update`);
+      res.status(500).json({ error: 'User not found during update' });
+      return;
+    }
+
+    if (updateResult.modifiedCount === 0) {
+      console.error(`User ${userId} points not updated - possible issue with update operation`);
+    } else {
+      console.log(`User ${userId}: Added ${task.points} points and tokens`);
+    }
+
+    const userAfterUpdate = await User.findOne({ uid: userId });
+    console.log('User after update:', userAfterUpdate);
+
+    res.json(submission);
+  } catch (error) {
+    console.error('Error approving submission:', error);
+    res.status(500).json({ error: 'Failed to approve submission' });
   }
-
-  submission.status = 'approved';
-  await submission.save();
-
-  const task = await Task.findById(submission.taskId);
-  if (!task) {
-    res.status(404).json({ error: 'Task not found' });
-    return;
-  }
-
-  await User.updateOne(
-    { uid: submission.userId },
-    { $inc: { points: task.points, tokens: task.points } }
-  );
-
-  const updatedUser = await User.updateOne(
-  { uid: submission.userId },
-  { $inc: { points: task.points, tokens: task.points } }
-);
-console.log(`Updated user ${submission.userId}: added ${task.points} points and tokens`);
-
-  res.json(submission);
-});
-
-// Get pending submissions (Admin only)
-router.get('/submissions/pending', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  if (!req.user?.admin) {
-    res.status(403).json({ error: 'Admin only' });
-    return;
-  }
-  const submissions = await Submission.find({ status: 'pending' });
-  res.json(submissions);
 });
 
 export default router;

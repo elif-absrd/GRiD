@@ -3,13 +3,15 @@ import { Schema, model } from 'mongoose';
 interface IShopItem {
   name: string;
   description: string;
-  tokenCost: number;
+  cost: number;
+  createdAt: Date;
 }
 
 const shopItemSchema = new Schema<IShopItem>({
   name: { type: String, required: true },
   description: { type: String, required: true },
-  tokenCost: { type: Number, required: true },
+  cost: { type: Number, required: true },
+  createdAt: { type: Date, default: Date.now },
 });
 
 export default model<IShopItem>('ShopItem', shopItemSchema);
