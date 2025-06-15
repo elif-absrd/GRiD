@@ -203,18 +203,32 @@ const App: React.FC = () => {
       return;
     }
 
+    // Skip leaderboard fetch for admins since they are excluded
+    // if (user?.admin) {
+    //   console.log('Skipping leaderboard fetch: user is an admin');
+    //   setCurrentUserData({ uid: user?.uid || '', email: user?.email || '', points: 0, tokens: 0 });
+    //   //setLeaderboard([]); // Optionally clear leaderboard for admins
+    //   return;
+    // }
+
     try {
       console.log('Fetching leaderboard with headers:', { Authorization: `Bearer ${token}` });
       const res = await fetch('http://localhost:3000/api/leaderboard', {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (user?.admin) {
+      console.log('Skipping leaderboard fetch: user is an admin');
+      setCurrentUserData({ uid: user?.uid || '', email: user?.email || '', points: 0, tokens: 0 });
+      //setLeaderboard([]); // Optionally clear leaderboard for admins
+      return;
+      }
       if (!res.ok) throw new Error('Failed to fetch leaderboard');
       const leaderboardData = await res.json();
       console.log('Fetched leaderboard:', leaderboardData);
       setLeaderboard(leaderboardData);
 
       const userData = leaderboardData.find((u: UserData) => u.email === user?.email || u.uid === user?.uid);
-      if (!userData) {
+      if (!userData ) {
         console.warn('Current user not found in leaderboard:', { email: user?.email, uid: user?.uid });
         setErrorMessage('You are not on the leaderboard yet. Complete tasks to earn points!');
         setCurrentUserData({ uid: user?.uid || '', email: user?.email || '', points: 0, tokens: 0 });
