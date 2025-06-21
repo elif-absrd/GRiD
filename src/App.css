@@ -40,3 +40,106 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Header and logo styles */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  background-color: #f0f8ff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+  height: 70px;
+  position: relative;
+}
+
+.app-title {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  flex-basis: 50%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 5px 0;
+}
+
+.header-logo {
+  max-height: 100px;
+  width: auto;
+  object-fit: contain;
+  margin: 0;
+  padding: 5px 0;
+}
+
+/* Tab styles improvements */
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  background-color: #f9f9f9;
+  padding: 5px;
+  border-radius: 8px;
+}
+
+.tab {
+  flex: 1;
+  padding: 12px 15px;
+  font-size: 16px;
+  background-color: #e0e0e0;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: 500;
+}
+
+.tab.active {
+  background-color: #90caf9;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tab:hover:not(.active) {
+  background-color: #d5d5d5;
+  transform: translateY(-1px);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-basis: 40%;
+  justify-content: flex-end;
+}
+
+.user-info span {
+  font-weight: 500;
+  color: #333;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.logout-button {
+  background-color: #f06292;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.3s;
+  white-space: nowrap;
+}

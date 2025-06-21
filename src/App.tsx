@@ -31,7 +31,7 @@ interface Task {
 interface PendingSubmission {
   _id: string;
   taskId: string | { _id: string; title: string };
-  userId: { _id: string; name: string; email: string; uid: string };
+  userId: { _id: string; name: string; email?: string; uid: string }; // Made email optional
   status: string;
 }
 
@@ -86,16 +86,19 @@ const App: React.FC = () => {
           const idTokenResult = await firebaseUser.getIdTokenResult(true);
           (firebaseUser as CustomUser).admin = idTokenResult.claims.admin === true;
           setUser(firebaseUser as CustomUser);
+          setIsAuthenticated(true); // Sync authentication state
         } catch (error) {
           console.error('Error in onAuthStateChanged:', error);
           setUser(null);
           setCurrentUserData(null);
           setApprovedSubmissions([]);
+          setIsAuthenticated(false);
         }
       } else {
         setUser(null);
         setCurrentUserData(null);
         setApprovedSubmissions([]);
+        setIsAuthenticated(false);
       }
     });
 
@@ -108,7 +111,7 @@ const App: React.FC = () => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const token = await user.getIdToken(true); // Force refresh token
+        const token = await user.getIdToken(true);
         console.log('Firebase token:', token);
         if (!token) {
           console.error('No ID token available');
@@ -135,11 +138,16 @@ const App: React.FC = () => {
 
   const fetchTasks = async (token: string) => {
     try {
-      console.log('Fetching tasks with headers:', { Authorization: `Bearer ${token}` });
-      const res = await fetch('http://localhost:3000/api/tasks', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      console.log('Fetching tasks with URL:', `${apiUrl}/api/tasks`, 'Headers:', { Authorization: `Bearer ${token}` });
+      const res = await fetch(`${apiUrl}/api/tasks`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error('Failed to fetch tasks');
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Response status:', res.status, 'Response text:', errorText);
+        throw new Error(`Failed to fetch tasks: ${res.status} - ${errorText}`);
+      }
       const tasksData = await res.json();
       console.log('Fetched tasks:', tasksData);
       setTasks(tasksData);
@@ -151,11 +159,16 @@ const App: React.FC = () => {
 
   const fetchPendingSubmissions = async (token: string) => {
     try {
-      console.log('Fetching pending submissions with headers:', { Authorization: `Bearer ${token}` });
-      const res = await fetch('http://localhost:3000/api/tasks/submissions/pending', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      console.log('Fetching pending submissions with URL:', `${apiUrl}/api/tasks/submissions/pending`, 'Headers:', { Authorization: `Bearer ${token}` });
+      const res = await fetch(`${apiUrl}/api/tasks/submissions/pending`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error('Failed to fetch submissions');
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Response status:', res.status, 'Response text:', errorText);
+        throw new Error(`Failed to fetch submissions: ${res.status} - ${errorText}`);
+      }
       const submissionsData = await res.json();
       console.log('Fetched pending submissions:', submissionsData);
       setSubmissions(submissionsData);
@@ -167,11 +180,16 @@ const App: React.FC = () => {
 
   const fetchApprovedSubmissions = async (token: string) => {
     try {
-      console.log('Fetching approved submissions with headers:', { Authorization: `Bearer ${token}` });
-      const res = await fetch('http://localhost:3000/api/tasks/submissions/approved', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      console.log('Fetching approved submissions with URL:', `${apiUrl}/api/tasks/submissions/approved`, 'Headers:', { Authorization: `Bearer ${token}` });
+      const res = await fetch(`${apiUrl}/api/tasks/submissions/approved`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error('Failed to fetch approved submissions');
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Response status:', res.status, 'Response text:', errorText);
+        throw new Error(`Failed to fetch approved submissions: ${res.status} - ${errorText}`);
+      }
       const approvedData = await res.json();
       console.log('Fetched approved submissions:', approvedData);
       setApprovedSubmissions(approvedData);
@@ -183,11 +201,16 @@ const App: React.FC = () => {
 
   const fetchShopItems = async (token: string) => {
     try {
-      console.log('Fetching shop items with headers:', { Authorization: `Bearer ${token}` });
-      const res = await fetch('http://localhost:3000/api/shop', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      console.log('Fetching shop items with URL:', `${apiUrl}/api/shop`, 'Headers:', { Authorization: `Bearer ${token}` });
+      const res = await fetch(`${apiUrl}/api/shop`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error('Failed to fetch shop items');
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Response status:', res.status, 'Response text:', errorText);
+        throw new Error(`Failed to fetch shop items: ${res.status} - ${errorText}`);
+      }
       const shopData = await res.json();
       console.log('Fetched shop items:', shopData);
       setShopItems(shopData);
@@ -203,35 +226,32 @@ const App: React.FC = () => {
       return;
     }
 
-    // Skip leaderboard fetch for admins since they are excluded
-    // if (user?.admin) {
-    //   console.log('Skipping leaderboard fetch: user is an admin');
-    //   setCurrentUserData({ uid: user?.uid || '', email: user?.email || '', points: 0, tokens: 0 });
-    //   //setLeaderboard([]); // Optionally clear leaderboard for admins
-    //   return;
-    // }
-
     try {
-      console.log('Fetching leaderboard with headers:', { Authorization: `Bearer ${token}` });
-      const res = await fetch('http://localhost:3000/api/leaderboard', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      console.log('Fetching leaderboard with URL:', `${apiUrl}/api/leaderboard`, 'Headers:', { Authorization: `Bearer ${token}` });
+      const res = await fetch(`${apiUrl}/api/leaderboard`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (user?.admin) {
-      console.log('Skipping leaderboard fetch: user is an admin');
-      setCurrentUserData({ uid: user?.uid || '', email: user?.email || '', points: 0, tokens: 0 });
-      //setLeaderboard([]); // Optionally clear leaderboard for admins
-      return;
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Response status:', res.status, 'Response text:', errorText);
+        throw new Error(`Failed to fetch leaderboard: ${res.status} - ${errorText}`);
       }
-      if (!res.ok) throw new Error('Failed to fetch leaderboard');
       const leaderboardData = await res.json();
       console.log('Fetched leaderboard:', leaderboardData);
       setLeaderboard(leaderboardData);
 
-      const userData = leaderboardData.find((u: UserData) => u.email === user?.email || u.uid === user?.uid);
-      if (!userData ) {
-        console.warn('Current user not found in leaderboard:', { email: user?.email, uid: user?.uid });
+      if (user.admin) {
+        console.log('Skipping current user data fetch: user is an admin');
+        setCurrentUserData({ uid: user.uid, email: user.email || '', points: 0, tokens: 0 });
+        return;
+      }
+
+      const userData = leaderboardData.find((u: UserData) => u.email === user.email || u.uid === user.uid);
+      if (!userData) {
+        console.warn('Current user not found in leaderboard:', { email: user.email, uid: user.uid });
         setErrorMessage('You are not on the leaderboard yet. Complete tasks to earn points!');
-        setCurrentUserData({ uid: user?.uid || '', email: user?.email || '', points: 0, tokens: 0 });
+        setCurrentUserData({ uid: user.uid, email: user.email || '', points: 0, tokens: 0 });
       } else {
         console.log('Current user data:', userData);
         setCurrentUserData(userData);
@@ -249,8 +269,9 @@ const App: React.FC = () => {
       if (!email || !password) {
         throw new Error('Email and password are required');
       }
-      await signInWithEmailAndPassword(getAuth(), email, password);
-      const currentUser = getAuth().currentUser;
+      const auth = getAuth();
+      await signInWithEmailAndPassword(auth, email, password);
+      const currentUser = auth.currentUser;
       if (currentUser) {
         await currentUser.getIdToken(true);
         setIsAuthenticated(true);
@@ -275,7 +296,8 @@ const App: React.FC = () => {
       if (!/^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$/.test(email)) {
         throw new Error('Invalid email format');
       }
-      await createUserWithEmailAndPassword(getAuth(), email, password);
+      const auth = getAuth();
+      await createUserWithEmailAndPassword(auth, email, password);
       setSuccessMessage('Sign-up successful! You can now log in.');
       setIsSignUp(false);
     } catch (error: any) {
@@ -285,7 +307,20 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await signOut(getAuth());
+    try {
+      await signOut(getAuth());
+      setIsAuthenticated(false);
+      setUser(null);
+      setCurrentUserData(null);
+      setTasks([]);
+      setSubmissions([]);
+      setApprovedSubmissions([]);
+      setShopItems([]);
+      setLeaderboard([]);
+    } catch (error) {
+      console.error('Logout error:', error);
+      setErrorMessage('Failed to logout. Please try again.');
+    }
   };
 
   const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -295,7 +330,8 @@ const App: React.FC = () => {
       if (!token) {
         throw new Error('No token available');
       }
-      const res = await fetch('http://localhost:3000/api/tasks', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const res = await fetch(`${apiUrl}/api/tasks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -307,11 +343,16 @@ const App: React.FC = () => {
           points: Number(taskPoints),
         }),
       });
-      if (!res.ok) throw new Error('Failed to create task');
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Response status:', res.status, 'Response text:', errorText);
+        throw new Error(`Failed to create task: ${res.status} - ${errorText}`);
+      }
       await fetchTasks(token);
       setTaskTitle('');
       setTaskDescription('');
       setTaskPoints('');
+      setSuccessMessage('Task created successfully!');
     } catch (error) {
       console.error('Error creating task:', error);
       setErrorMessage('Failed to create task. Please try again.');
@@ -328,7 +369,8 @@ const App: React.FC = () => {
       if (!token) {
         throw new Error('No token available');
       }
-      const res = await fetch('http://localhost:3000/api/tasks/all', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const res = await fetch(`${apiUrl}/api/tasks/all`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -354,8 +396,9 @@ const App: React.FC = () => {
       if (!token) {
         throw new Error('No token available');
       }
-      console.log('Submitting task with headers:', { Authorization: `Bearer ${token}` });
-      const res = await fetch(`http://localhost:3000/api/tasks/${taskId}/submit`, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      console.log('Submitting task with URL:', `${apiUrl}/api/tasks/${taskId}/submit`, 'Headers:', { Authorization: `Bearer ${token}` });
+      const res = await fetch(`${apiUrl}/api/tasks/${taskId}/submit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -365,6 +408,7 @@ const App: React.FC = () => {
       }
       await fetchTasks(token);
       await fetchLeaderboard(token);
+      setSuccessMessage('Task submitted successfully!');
     } catch (error: any) {
       console.error('Error submitting task:', error);
       setErrorMessage(error.message || 'Failed to submit task.');
@@ -378,7 +422,8 @@ const App: React.FC = () => {
       if (!token) {
         throw new Error('No token available');
       }
-      const res = await fetch(`http://localhost:3000/api/tasks/${submissionId}/approve`, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const res = await fetch(`${apiUrl}/api/tasks/${submissionId}/approve`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -388,6 +433,7 @@ const App: React.FC = () => {
       }
       await fetchPendingSubmissions(token);
       await fetchLeaderboard(token);
+      setSuccessMessage('Submission approved successfully!');
     } catch (error: any) {
       console.error('Error approving submission:', error);
       setSubmissionError(error.message);
@@ -400,7 +446,8 @@ const App: React.FC = () => {
       if (!token) {
         throw new Error('No token available');
       }
-      const res = await fetch('http://localhost:3000/api/shop/redeem', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const res = await fetch(`${apiUrl}/api/shop/redeem`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -414,6 +461,7 @@ const App: React.FC = () => {
       }
       await fetchShopItems(token);
       await fetchLeaderboard(token);
+      setSuccessMessage('Item redeemed successfully!');
     } catch (error: any) {
       console.error('Error redeeming item:', error);
       setErrorMessage(error.message || 'Failed to redeem item.');
@@ -468,9 +516,15 @@ const App: React.FC = () => {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1 className="app-title">Welcome</h1>
+        <div className="app-title">
+          <img 
+            src="/images/img25-removebg-preview.png" 
+            alt="GRiD Logo" 
+            className="header-logo" 
+          />
+        </div>
         <div className="user-info">
-          <span>{currentUserData?.email || user.email}!</span>
+          <span>{currentUserData?.email || user.email}</span>
           <button onClick={handleLogout} className="logout-button">
             Logout
           </button>
@@ -556,7 +610,7 @@ const App: React.FC = () => {
                           ? `Task ID: ${submission.taskId}`
                           : submission.taskId.title}
                       </p>
-                      <p>User: {submission.userId.email} (ID: {submission.userId.uid})</p>
+                      <p>User: {submission.userId.email || 'Unknown Email'} (ID: {submission.userId.uid || 'N/A'})</p>
                       <p>Status: {submission.status}</p>
                       <button
                         onClick={() => handleApproveSubmission(submission._id)}
