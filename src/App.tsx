@@ -185,17 +185,25 @@ const App: React.FC = () => {
       const res = await fetch(`${apiUrl}/api/tasks/submissions/approved`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
+      if (res.status === 500) {
+        console.warn('Server error fetching approved submissions - returning empty array');
+        setApprovedSubmissions([]);
+        return;
+      }
+      
       if (!res.ok) {
         const errorText = await res.text();
         console.error('Response status:', res.status, 'Response text:', errorText);
         throw new Error(`Failed to fetch approved submissions: ${res.status} - ${errorText}`);
       }
+      
       const approvedData = await res.json();
       console.log('Fetched approved submissions:', approvedData);
       setApprovedSubmissions(approvedData);
     } catch (error) {
       console.error('Error fetching approved submissions:', error);
-      throw error;
+      setApprovedSubmissions([]); // Set empty array on error to avoid breaking the UI
     }
   };
 
@@ -516,15 +524,15 @@ const App: React.FC = () => {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1 className="app-title">
+        <div className="app-title">
           <img 
             src="/images/img25-removebg-preview.png" 
             alt="GRiD Logo" 
             className="header-logo" 
           />
-        </h1>
+        </div>
         <div className="user-info">
-          <span>{currentUserData?.email || user.email}!</span>
+          <span>{currentUserData?.email || user.email}</span>
           <button onClick={handleLogout} className="logout-button">
             Logout
           </button>
@@ -602,25 +610,39 @@ const App: React.FC = () => {
                 {submissions.length === 0 ? (
                   <p className="empty-message">No pending submissions.</p>
                 ) : (
-                  submissions.map((submission) => (
-                    <div key={submission._id} className="card">
-                      <p>
-                        Task:{' '}
-                        {typeof submission.taskId === 'string'
-                          ? `Task ID: ${submission.taskId}`
-                          : submission.taskId.title}
-                      </p>
-                      <p>User: {submission.userId.email || 'Unknown Email'} (ID: {submission.userId.uid || 'N/A'})</p>
-                      <p>Status: {submission.status}</p>
-                      <button
-                        onClick={() => handleApproveSubmission(submission._id)}
-                        className="button button-primary"
-                        disabled={submission.status === 'approved'}
-                      >
-                        {submission.status === 'approved' ? 'Approved' : 'Approve'}
-                      </button>
-                    </div>
-                  ))
+                  submissions.map((submission) => {
+                    console.log('Rendering submission:', submission);
+                    
+                    // Try to get the email through multiple possible paths
+                    const email = submission.userId?.email || 
+                                  (typeof submission.userId === 'object' && submission.userId.email) || 
+                                  'Unknown Email';
+                    
+                    // Try to get the user ID through multiple possible paths
+                    const userId = submission.userId?.uid || 
+                                   submission.userId?._id || 
+                                   (typeof submission.userId === 'string' ? submission.userId : 'N/A');
+                    
+                    return (
+                      <div key={submission._id} className="card">
+                        <p>
+                          Task:{' '}
+                          {typeof submission.taskId === 'string'
+                            ? `Task ID: ${submission.taskId}`
+                            : submission.taskId.title}
+                        </p>
+                        <p>User: {email} (ID: {userId})</p>
+                        <p>Status: {submission.status}</p>
+                        <button
+                          onClick={() => handleApproveSubmission(submission._id)}
+                          className="button button-primary"
+                          disabled={submission.status === 'approved'}
+                        >
+                          {submission.status === 'approved' ? 'Approved' : 'Approve'}
+                        </button>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             )}
@@ -714,5 +736,5 @@ const App: React.FC = () => {
     </div>
   );
 };
-                
+
 export default App;

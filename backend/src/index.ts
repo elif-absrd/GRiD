@@ -94,7 +94,6 @@ app.use(async (req: AuthenticatedRequest, res: Response, next: NextFunction): Pr
   }
 });
 
-
 // Routes
 app.use('/api/tasks', taskRoutes);
 app.use('/api/shop', shopRoutes);

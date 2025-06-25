@@ -4,15 +4,19 @@ import Submission from '../models/Submission';
 import User from '../models/User';
 import { Types } from 'mongoose';
 
+// Update the interface to include all needed properties
 interface AuthenticatedRequest extends Request {
   user?: {
     uid: string;
     admin?: boolean;
+    email?: string;
+    name?: string;
   };
 }
 
 const router = express.Router();
 
+// Fix for the tasks route
 router.get('/', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     if (req.user?.admin) {
@@ -21,11 +25,43 @@ router.get('/', async (req: AuthenticatedRequest, res: Response): Promise<void> 
       return;
     }
 
-    const userId = req.user?.uid;
-    const submissions = await Submission.find({ userId }).select('taskId');
+    if (!req.user?.uid) {
+      console.error('No UID provided in request');
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    console.log(`Looking for user with UID: ${req.user.uid}`);
+    
+    // First find the user document by Firebase UID
+    const user = await User.findOne({ uid: req.user.uid });
+    console.log('User lookup result:', user);
+    
+    if (!user) {
+      // If no user is found, create one (automatic onboarding)
+      try {
+        const newUser = await User.create({
+          uid: req.user.uid,
+          email: req.user.email || `user-${req.user.uid}@example.com`,
+          name: req.user.name || req.user.email?.split('@')[0] || req.user.uid,
+          points: 0,
+          tokens: 0
+        });
+        console.log('Created new user:', newUser);
+        // Return empty tasks for new users
+        res.json([]);
+      } catch (createError) {
+        console.error('Error creating user:', createError);
+        res.json([]);
+      }
+      return;
+    }
+
+    // Then use the MongoDB ObjectId to find submissions
+    const submissions = await Submission.find({ userId: user._id }).select('taskId');
     const submittedTaskIds = submissions.map((submission) => submission.taskId.toString());
     const tasks = await Task.find({ _id: { $nin: submittedTaskIds } }).sort({ createdAt: -1 });
-    console.log(`User ${userId} fetched tasks:`, tasks);
+    console.log(`User ${req.user.uid} fetched tasks:`, tasks);
     res.json(tasks);
   } catch (error) {
     console.error('Error fetching tasks:', error);
@@ -58,12 +94,15 @@ router.delete('/all', async (req: AuthenticatedRequest, res: Response): Promise<
   }
 
   try {
+    // Delete all tasks
     const deleteResult = await Task.deleteMany({});
     console.log(`Deleted ${deleteResult.deletedCount} tasks`);
 
+    // Delete all submissions related to tasks
     const submissionsDeleteResult = await Submission.deleteMany({});
     console.log(`Deleted ${submissionsDeleteResult.deletedCount} submissions`);
 
+    // Reset all users' points and tokens to 0
     const userUpdateResult = await User.updateMany({}, { $set: { points: 0, tokens: 0 } });
     console.log(`Reset points and tokens for ${userUpdateResult.modifiedCount} users`);
 
@@ -75,7 +114,7 @@ router.delete('/all', async (req: AuthenticatedRequest, res: Response): Promise<
 });
 
 router.post('/:id/submit', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  if (req.user?.admin) {
+  if (!req.user || req.user.admin) {
     res.status(403).json({ error: 'Admins cannot submit tasks' });
     return;
   }
@@ -87,21 +126,29 @@ router.post('/:id/submit', async (req: AuthenticatedRequest, res: Response): Pro
   }
 
   try {
+    // Find or create user document
+    let user = await User.findOne({ uid: req.user.uid });
+    if (!user) {
+      user = await User.create({
+        uid: req.user.uid,
+        email: req.user.email || `user-${req.user.uid}@example.com`, // Provide default if email is undefined
+        name: req.user.name || req.user.email?.split('@')[0] || req.user.uid, // Multiple fallbacks
+        points: 0,
+        tokens: 0
+      });
+    }
+    
+    // Create submission with reference to user
     const submission = new Submission({
-      taskId: new Types.ObjectId(req.params.id),
-      userId: req.user?.uid,
+      taskId: task._id,
+      userId: user._id,  // Store ObjectId reference
       status: 'pending',
     });
 
     await submission.save();
-    // Fetch user details to include in response
-    const user = await User.findOne({ uid: req.user?.uid }).select('name email uid');
-    const submissionWithUser = {
-      ...submission.toObject(),
-      userId: user || { _id: req.user?.uid, name: 'Unknown', email: 'Unknown', uid: req.user?.uid },
-    };
-    console.log(`User ${req.user?.uid} submitted task ${req.params.id}:`, submissionWithUser);
-    res.json(submissionWithUser);
+    console.log(`User ${req.user.uid} submitted task ${req.params.id}:`, submission);
+    res.json(submission);
+
   } catch (error: any) {
     if (error.code === 11000) {
       res.status(400).json({ error: 'You have already submitted this task.' });
@@ -113,17 +160,33 @@ router.post('/:id/submit', async (req: AuthenticatedRequest, res: Response): Pro
 });
 
 router.get('/submissions/pending', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  if (!req.user?.admin) {
-    res.status(403).json({ error: 'Admin only' });
-    return;
-  }
-
   try {
+    if (!req.user?.admin) {
+      res.status(403).json({ error: 'Admin only' });
+      return;
+    }
+    
+    console.log('Fetching pending submissions for admin');
+    
+    // First, get submissions without population to see the raw data
+    const rawSubmissions = await Submission.find({ status: 'pending' }).sort({ createdAt: -1 });
+    console.log('Raw submissions (without population):', rawSubmissions);
+    
+    // Now try population
     const submissions = await Submission.find({ status: 'pending' })
       .sort({ createdAt: -1 })
       .populate('taskId', 'title')
-      .populate('userId', 'name email uid');
-    console.log('Fetched pending submissions with user details:', submissions);
+      .populate('userId');
+      
+    console.log('Populated submissions:', 
+      submissions.map(s => ({
+        _id: s._id,
+        taskId: s.taskId,
+        userId: s.userId,
+        status: s.status
+      }))
+    );
+    
     res.json(submissions);
   } catch (error) {
     console.error('Error fetching pending submissions:', error);
@@ -131,20 +194,42 @@ router.get('/submissions/pending', async (req: AuthenticatedRequest, res: Respon
   }
 });
 
+// Fix for approved submissions
 router.get('/submissions/approved', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  if (req.user?.admin) {
-    res.status(403).json({ error: 'Admins do not have submissions' });
-    return;
-  }
-
   try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    
+    if (req.user.admin) {
+      res.status(403).json({ error: 'Admins do not have submissions' });
+      return;
+    }
+
+    console.log(`Looking for approved submissions for user with UID: ${req.user.uid}`);
+    
+    // First find the user by Firebase UID
+    const user = await User.findOne({ uid: req.user.uid });
+    
+    if (!user) {
+      console.log(`User not found with uid: ${req.user.uid}`);
+      // Return empty array instead of error
+      res.json([]);
+      return;
+    }
+
+    console.log(`Found user for approved submissions:`, user);
+    
+    // Use the MongoDB ObjectId for query
     const submissions = await Submission.find({
-      userId: req.user?.uid,
+      userId: user._id,
       status: 'approved',
     })
       .sort({ createdAt: -1 })
       .populate('taskId', 'title description points');
-    console.log(`Approved submissions for user ${req.user?.uid}:`, submissions);
+      
+    console.log(`Approved submissions for user ${req.user.uid}:`, submissions);
     res.json(submissions);
   } catch (error) {
     console.error('Error fetching approved submissions:', error);
@@ -159,13 +244,13 @@ router.post('/:id/approve', async (req: AuthenticatedRequest, res: Response): Pr
   }
 
   try {
-    const submission = await Submission.findById(req.params.id).populate('userId', 'name email uid');
+    const submission = await Submission.findById(req.params.id);
     if (!submission) {
       console.error(`Submission ${req.params.id} not found`);
       res.status(404).json({ error: 'Submission not found' });
       return;
     }
-    console.log('Submission to approve with user details:', submission);
+    console.log('Submission to approve:', submission);
 
     if (submission.status === 'approved') {
       console.log(`Submission ${req.params.id} is already approved`);
@@ -185,44 +270,100 @@ router.post('/:id/approve', async (req: AuthenticatedRequest, res: Response): Pr
     }
     console.log('Task for submission:', task);
 
-    const userId = submission.userId.toString();
-    console.log(`User ID to update: ${userId}`);
+    // Get the user from the populated MongoDB document
+    const userDoc = await User.findById(submission.userId);
+    if (!userDoc) {
+      console.error(`User with ID ${submission.userId} not found`);
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
 
-    const userBeforeUpdate = await User.findOne({ uid: userId });
+    const userBeforeUpdate = await User.findById(userDoc._id);
     console.log('User before update:', userBeforeUpdate);
 
     if (!userBeforeUpdate) {
-      console.error(`User with uid ${userId} not found`);
+      console.error(`User with ID ${userDoc._id} not found`);
       res.status(404).json({ error: 'User not found' });
       return;
     }
 
     const updateResult = await User.updateOne(
-      { uid: userId },
+      { _id: userDoc._id },
       { $inc: { points: task.points, tokens: task.points } }
     );
 
     if (updateResult.matchedCount === 0) {
-      console.error(`User with uid ${userId} not found during update`);
+      console.error(`User with ID ${userDoc._id} not found during update`);
       res.status(500).json({ error: 'User not found during update' });
       return;
     }
 
     if (updateResult.modifiedCount === 0) {
-      console.error(`User ${userId} points not updated - possible issue with update operation`);
+      console.error(`User ${userDoc._id} points not updated - possible issue with update operation`);
     } else {
-      console.log(`User ${userId}: Added ${task.points} points and tokens`);
+      console.log(`User ${userDoc._id}: Added ${task.points} points and tokens`);
     }
 
-    const userAfterUpdate = await User.findOne({ uid: userId });
+    const userAfterUpdate = await User.findById(userDoc._id);
     console.log('User after update:', userAfterUpdate);
 
-    // Return submission with populated userId
-    const updatedSubmission = await Submission.findById(req.params.id).populate('userId', 'name email uid');
-    res.json(updatedSubmission);
+    res.json(submission);
   } catch (error) {
     console.error('Error approving submission:', error);
     res.status(500).json({ error: 'Failed to approve submission' });
+  }
+});
+
+// Add this to debug your issues
+router.get('/debug/user', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    
+    const user = await User.findOne({ uid: req.user.uid });
+    const allUsers = await User.find({}).limit(10);
+    
+    res.json({
+      requestUser: req.user,
+      databaseUser: user,
+      sampleUsers: allUsers,
+    });
+  } catch (error) {
+    console.error('Error in debug route:', error);
+    res.status(500).json({ error: 'Debug error' });
+  }
+});
+
+// Add MongoDB connection check route
+router.get('/debug/db', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    // Check collections
+    const taskCount = await Task.countDocuments();
+    const userCount = await User.countDocuments();
+    const submissionCount = await Submission.countDocuments();
+    
+    // Check user existence
+    const user = req.user ? await User.findOne({ uid: req.user.uid }) : null;
+    
+    res.json({
+      databaseStatus: 'connected',
+      collections: {
+        tasks: taskCount,
+        users: userCount,
+        submissions: submissionCount
+      },
+      currentUser: user,
+      requestUser: req.user
+    });
+  } catch (error: any) {
+    console.error('Database debug error:', error);
+    res.status(500).json({ 
+      error: 'Database connection error',
+      message: error.message,
+      stack: error.stack
+    });
   }
 });
 
