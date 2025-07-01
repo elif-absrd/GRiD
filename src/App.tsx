@@ -82,7 +82,7 @@ const App: React.FC = () => {
   const [taskMediaUrls, setTaskMediaUrls] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'tasks' | 'shop' | 'leaderboard'>('tasks');
   const [isLoading, setIsLoading] = useState(false);
-  const [redemptionResult, setRedemptionResult] = useState<{ itemId: string; googleFormLink?: string } | null>(null);
+  const [redemptionPending, setRedemptionPending] = useState<{ itemId: string; googleFormLink?: string; formLinkSubmitted?: boolean; actionTaken?:boolean } | null>(null);
   const [pendingUserSubmissions, setPendingUserSubmissions] = useState<ApprovedSubmission[]>([]);
 
   const fetchDataTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -603,8 +603,8 @@ const App: React.FC = () => {
       }
       setSuccessMessage(`Successfully redeemed ${shop.name}!`);
       if (result.googleFormLink) {
+      setRedemptionPending({ itemId, googleFormLink: result.googleFormLink, formLinkSubmitted: false, actionTaken: false });
       window.open(result.googleFormLink, '_blank');
-      setRedemptionResult({ itemId, googleFormLink: result.googleFormLink });
     } else {
       console.warn('No googleFormLink returned for item:', itemId);
     }
@@ -666,11 +666,43 @@ const App: React.FC = () => {
     const result = await res.json();
     setCurrentUserData((prev) => prev ? { ...prev, tokens: result.remainingTokens } : null);
     setSuccessMessage('Redemption confirmed!');
-    setRedemptionResult(null); 
+    setRedemptionPending((prev) => prev ? { ...prev, formLinkSubmitted: true, actionTaken: true } : null); // Mark as submitted
+    setTimeout(() => setRedemptionPending(null), 2000); 
   } catch (error) {
     setErrorMessage( 'Failed to confirm redemption');
   }
 };
+
+  const handleCancelRedemption = async (itemId: string) => {
+    console.log('handleCancelRedemption called for itemId:', itemId);
+    try {
+      const token = await getAuth().currentUser?.getIdToken();
+      const res = await fetch('http://localhost:3000/api/shop/redeem/cancel', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId, userId: user?.uid }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error('Cancel redemption error:', errorData);
+        throw new Error(errorData.error || 'Failed to cancel redemption');
+      }
+      const result = await res.json();
+      setSuccessMessage('Redemption canceled. No tokens deducted.');
+      setRedemptionPending((prev) => (prev ? { ...prev, actionTaken: true } : null));
+      setTimeout(() => setRedemptionPending(null), 2000);
+    } catch (error) {
+      setErrorMessage('Failed to cancel redemption');
+    }
+  };
+
+  const handleMarkAsSubmitted = (itemId: string) => {
+    console.log('handleMarkAsSubmitted called for itemId:', itemId);
+    if (redemptionPending?.itemId === itemId && !redemptionPending.formLinkSubmitted) {
+      setRedemptionPending((prev) => (prev ? { ...prev, formLinkSubmitted: true } : prev));
+      setSuccessMessage('Please confirm redemption to deduct tokens.');
+    }
+  };
 
   const handleResubmitTask = async (submission: ApprovedSubmission) => {
     try {
@@ -1086,7 +1118,7 @@ const App: React.FC = () => {
                   <p className="card-description">{item.description}</p>
                   <p className="card-points">Cost: {item.tokenCost} tokens</p>
                   {!user.admin && (
-                    <>
+                    <div>
                     <button
                       onClick={() => {
                         handleRedeemItem(item._id).then((result) => {
@@ -1103,22 +1135,41 @@ const App: React.FC = () => {
                     >
                       Redeem
                     </button>
-                    {redemptionResult && redemptionResult.itemId === item._id && (
+                    {redemptionPending?.itemId === item._id && (
+                      <div className="button-group">
+                        {!redemptionPending.formLinkSubmitted && !redemptionPending.actionTaken && (
+                          <button
+                            onClick={() => handleMarkAsSubmitted(item._id)}
+                            className="button button-primary"
+                            disabled={redemptionPending.actionTaken}
+                          >
+                            Mark as Submitted
+                          </button>
+                        )}
                         <button
                           onClick={() => handleConfirmRedemption(item._id)}
                           className="button button-secondary"
-                          disabled={!redemptionResult.googleFormLink}
+                          disabled={!redemptionPending.formLinkSubmitted || redemptionPending.actionTaken}
                         >
                           Confirm Redemption
                         </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        )}
+                        <button
+                          onClick={() => handleCancelRedemption(item._id)}
+                          className="button button-danger"
+                          disabled={redemptionPending.formLinkSubmitted || redemptionPending.actionTaken}
+                        >
+                          Cancel Redemption
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
 
         {activeTab === 'leaderboard' && (
           <div>

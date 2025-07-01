@@ -81,16 +81,8 @@ router.post('/redeem', async (req: AuthenticatedRequest, res: Response): Promise
         res.status(400).json({ error: 'Insufficient tokens' });
         return;
       }
-
-    // DEDUCT THE TOKENS HERE - this was missing!
-    const newTokenBalance = Math.max(0, user.tokens - shopItem.cost);
-    user.tokens = newTokenBalance;
-    await user.save();
-
-    console.log(`User ${req.user.uid} redeemed ${shopItem.name}, remaining tokens: ${newTokenBalance}`);
     res.json({  
       googleFormLink: shopItem.googleFormLink || '',
-      remainingTokens: newTokenBalance, // Return the new balance
     });
   } catch (error) {
     console.error('Error redeeming shop item:', error);
@@ -117,6 +109,22 @@ router.post('/redeem/confirm', async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ error: 'Failed to confirm redemption' });
+  }
+});
+
+router.post('/redeem/cancel', async (req: AuthenticatedRequest, res:Response): Promise<void> => {
+  try {
+    const { itemId, userId } = req.body;
+    console.log('Received cancel redemption request:', { itemId, userId });
+    if (!itemId || !userId) {
+      res.status(400).json({ error: 'itemId and userId are required' });
+      return;
+    }
+    // No token deduction, just clear the pending state (handled client-side)
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error canceling redemption:', error);
+    res.status(400).json({ error: 'Failed to cancel redemption' });
   }
 });
 

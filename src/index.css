@@ -180,6 +180,8 @@ body {
 .button {
   padding: 10px 20px;
   border: none;
+  padding: 8px 16px;
+  margin: 5px;
   border-radius: 5px;
   cursor: pointer;
   font-size: 14px;
@@ -207,8 +209,8 @@ body {
 }
 
 .button-secondary {
-  background-color: #e9a288; /* custom-orange */
-  color: #666;
+  background-color: #e66b3f; 
+  color: white;
 }
 
 .button-secondary:hover {
