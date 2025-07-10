@@ -4,8 +4,11 @@
   "main": "index.js",
   "scripts": {
     "start": "ts-node src/index.ts",
-    "set-admin": "ts-node src/setAdmin.ts",
-    "seed-shop": "ts-node src/seedShop.ts"
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "set-admin": "ts-node src/setAdmin.pg.ts",
+    "seed-shop": "ts-node src/seedShop.pg.ts",
+    "recalculate-points": "ts-node scripts/recalculatePoints.pg.ts",
+    "migrate": "ts-node scripts/migrateToPostgres.ts"
   },
   "keywords": [],
   "author": "",
@@ -20,9 +23,14 @@
     "express": "^5.1.0",
     "firebase-admin": "^13.4.0",
     "mongoose": "^8.15.1",
+    "pg": "^8.16.3",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.7",
     "typescript": "^5.8.3"
   },
   "devDependencies": {
+    "@prisma/client": "^6.11.1",
+    "prisma": "^6.11.1",
     "ts-node-dev": "^2.0.0"
   },
   "type": "commonjs"

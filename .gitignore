@@ -6,7 +6,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-backend/credentials/grid-firebase-adminsdk.json
+backend/credentials/
 
 node_modules
 dist

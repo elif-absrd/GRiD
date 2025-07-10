@@ -52,6 +52,29 @@ This guide provides instructions to set up and run the GRiD project locally.
      ```
    - Place the firebase admin sdk file.
 
+## Running the Application
+
+1. **Start the Backend Server**
+   ```bash
+   cd backend
+   npm start
+   ```
+   For development with auto-reload:
+   ```bash
+   npm run dev
+   ```
+
+2. **Start the Frontend (in a separate terminal)**
+   ```bash
+   # From the project root
+   npm run dev
+   ```
+
+## Database Migration
+
+This project has been migrated from MongoDB to PostgreSQL. For detailed migration instructions, see [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md).
+
 ## Additional Notes
 - Ensure all environment variables are correctly configured before running the application.
 - Refer to the project documentation for specific details on required credentials and environment variables.
+- If you're setting up a new PostgreSQL database, use the provided scripts to initialize and seed data.

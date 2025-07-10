@@ -1,15 +1,14 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import mongoose from 'mongoose';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import taskRoutes from './routes/tasks';
-import shopRoutes from './routes/shop';
-import leaderboardRoutes from './routes/leaderboard';
+import taskRoutes from './routes/tasks.pg';
+import shopRoutes from './routes/shop.pg';
+import leaderboardRoutes from './routes/leaderboard.pg';
 import dotenv from 'dotenv';
-import User from './models/User';
-import tokenRoutes from './routes/token';
-import usersRoutes from './routes/users';
+import tokenRoutes from './routes/token.pg';
+import usersRoutes from './routes/users.pg';
+import { syncDatabase, User } from './models';
 
 dotenv.config();
 
@@ -20,11 +19,10 @@ initializeApp({
   credential: cert(process.env.FIREBASE_CREDENTIALS_PATH!),
 });
 
-// Connect to MongoDB Atlas
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/taskApp';
-mongoose.connect(MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB Atlas'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+// Connect to PostgreSQL
+syncDatabase()
+  .then(() => console.log('Connected to PostgreSQL'))
+  .catch((err) => console.error('PostgreSQL connection error:', err));
 
 app.use(cors());
 app.use(express.json());
@@ -37,7 +35,7 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-// Middleware to verify Firebase token and sync user with MongoDB
+// Middleware to verify Firebase token and sync user with PostgreSQL
 app.use(async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   const token = req.headers.authorization?.split('Bearer ')[1];
   if (!token) {
@@ -55,10 +53,10 @@ app.use(async (req: AuthenticatedRequest, res: Response, next: NextFunction): Pr
     const name = decodedToken.name || email.split('@')[0] || 'Unknown';
     const isAdmin = decodedToken.admin === true; // Get admin status from token
 
-    // Sync user with MongoDB
-    let user = await User.findOne({ uid }).exec();
+    // Sync user with PostgreSQL
+    let user = await User.findOne({ where: { uid } });
     if (!user) {
-      user = new User({
+      user = await User.create({
         uid,
         name,
         email,
@@ -66,16 +64,14 @@ app.use(async (req: AuthenticatedRequest, res: Response, next: NextFunction): Pr
         tokens: 0,
         admin: isAdmin,
       });
-      await user.save();
-      console.log(`Created user in MongoDB: ${email}`);
+      console.log(`Created user in PostgreSQL: ${email}`);
     } else {
       const updates: { email?: string; name?: string; admin?: boolean } = {};
       if (!user.email && email) updates.email = email;
       if (!user.name && name !== user.name) updates.name = name;
       if (user.admin !== isAdmin) updates.admin = isAdmin; // Update admin field if changed
       if (Object.keys(updates).length > 0) {
-        Object.assign(user, updates);
-        await user.save();
+        await user.update(updates);
         console.log(`Updated user ${uid}:`, updates);
       }
     }
