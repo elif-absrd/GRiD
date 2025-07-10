@@ -190,7 +190,16 @@ const App: React.FC = () => {
       if (!res.ok) throw new Error('Failed to fetch tasks');
       const tasksData = await res.json();
       console.log('Fetched tasks:', tasksData);
-      setTasks(tasksData);
+      
+      // Transform tasks to maintain compatibility with the frontend
+      const transformedTasks = tasksData.map((task: any) => ({
+        _id: task.id || task._id, // Support both MongoDB _id and PostgreSQL id
+        title: task.title,
+        description: task.description,
+        points: task.points
+      }));
+      
+      setTasks(transformedTasks);
     } catch (error) {
       console.error('Error fetching tasks:', error);
       throw error;
@@ -268,9 +277,9 @@ const App: React.FC = () => {
       console.log('Shop items response status:', res.status);
       if (!res.ok) throw new Error('Failed to fetch shop items');
       const shopData = await res.json();
-      // Map cost to tokenCost for consistency with frontend
+      // Map cost to tokenCost for consistency with frontend and handle PostgreSQL id field
       const mappedShopItems = shopData.map((item: any) => ({
-        _id: item._id,
+        _id: item.id || item._id, // Support both MongoDB _id and PostgreSQL id
         name: item.name,
         description: item.description,
         tokenCost: item.cost || 0, // Map cost to tokenCost
@@ -482,15 +491,29 @@ const App: React.FC = () => {
     });
     console.log('Submit task response status:', res.status);
     if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(errorData.error || 'Failed to submit task');
+      // Handle different error response formats
+      try {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to submit task');
+      } catch (jsonError) {
+        throw new Error(`Failed to submit task: ${res.status} ${res.statusText}`);
+      }
     }
     setTaskMediaUrls((prev) => ({ ...prev, [taskId]: '' })); // Reset only for this task
     await fetchTasks();
-    await fetchPendingSubmissions();
+    
+    // Only fetch pending submissions for admin users
+    if (user?.admin) {
+      await fetchPendingSubmissions();
+    } else {
+      await fetchApprovedSubmissions();
+    }
+    
+    // Show success message
+    setSuccessMessage('Task submitted successfully!');
   } catch (error: any) {
     console.error('Error submitting task:', error.message);
-    alert(error.message);
+    setErrorMessage(error.message);
   }
 };
 
@@ -504,7 +527,7 @@ const App: React.FC = () => {
       
       console.log(`Approving submission: ${submissionId}`);
       const apiUrl = 'http://localhost:3000';
-      const res = await fetch(`${apiUrl}/api/tasks/${submissionId}/approve`, {
+      const res = await fetch(`${apiUrl}/api/tasks/submissions/${submissionId}/approve`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -554,13 +577,13 @@ const App: React.FC = () => {
       }
       
       const apiUrl = 'http://localhost:3000';
-      const res = await fetch(`${apiUrl}/api/tasks/${submissionId}/decline`, {
+      const res = await fetch(`${apiUrl}/api/tasks/submissions/${submissionId}/reject`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}` 
         },
-        body: JSON.stringify({ reason })
+        body: JSON.stringify({ declineReason: reason })
       });
       
       if (!res.ok) {
@@ -596,18 +619,28 @@ const App: React.FC = () => {
         body: JSON.stringify({ itemId }),
       });
       console.log('Fetch response status:', res.status);
+      
+      if (!res.ok) {
+        // Try to parse error JSON, but handle case where response is not JSON
+        try {
+          const result = await res.json();
+          throw new Error(result.error || `Failed to redeem item (status: ${res.status})`);
+        } catch (jsonError) {
+          throw new Error(`Failed to redeem item (status: ${res.status})`);
+        }
+      }
+      
+      // Try to parse result JSON
       const result = await res.json();
       console.log('Redeem response data:', result);
-      if (!res.ok) {
-        throw new Error(result.error || `Failed to redeem item (status: ${res.status})`);
-      }
+      
       setSuccessMessage(`Successfully redeemed ${shop.name}!`);
       if (result.googleFormLink) {
-      setRedemptionPending({ itemId, googleFormLink: result.googleFormLink, formLinkSubmitted: false, actionTaken: false });
-      window.open(result.googleFormLink, '_blank');
-    } else {
-      console.warn('No googleFormLink returned for item:', itemId);
-    }
+        setRedemptionPending({ itemId, googleFormLink: result.googleFormLink, formLinkSubmitted: false, actionTaken: false });
+        window.open(result.googleFormLink, '_blank');
+      } else {
+        console.warn('No googleFormLink returned for item:', itemId);
+      }
       return result;
     } catch (error: any) {
       console.error('Error redeeming item:', error);
